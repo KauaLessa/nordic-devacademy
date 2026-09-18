@@ -3,7 +3,10 @@
 #include <zephyr/logging/log.h>
 #include <stdbool.h>
 
-#define I2C0_NODE DT_NODELABEL(bme680)
+#define I2C0_NODE DT_NODELABEL(mysensor)
+
+#define BME680_CHIP_ID_REG 0xD0
+#define BME680_CHIP_ID     0x61
 
 LOG_MODULE_REGISTER(i2c_temp_read);  
 
@@ -140,21 +143,40 @@ static inline int32_t raw_adc_to_celcius(uint32_t temp_adc, int16_t par_t1,
         int32_t t_fine = var2 + var3;
         int32_t temp_comp = ((t_fine * 5) + 128) >> 8;
 
-        return temp_comp; 
+        return temp_comp;
+}
+
+static int check_chip_id(void)
+{
+        uint8_t chip_id;
+        int ret;
+
+        ret = i2c_reg_read_byte_dt(&dev_i2c, BME680_CHIP_ID_REG, &chip_id);
+        CHECK_ERROR_READ(BME680_CHIP_ID_REG, ret);
+
+        LOG_INF("Chip id: 0x%02x\n\r", chip_id);
+
+        if (chip_id != BME680_CHIP_ID) {
+                LOG_ERR("Unexpected chip id: 0x%02x (expected 0x%02x)\n\r",
+                        chip_id, BME680_CHIP_ID);
+                return -1;
+        }
+
+        return 0;
 }
 
 int main(void)
 {
         uint16_t par_t1;
-        uint16_t par_t2; 
+        uint16_t par_t2;
         uint8_t par_t3;
-        uint32_t adc; 
+        uint32_t adc;
         uint8_t oversamp = 0b11; // 4x
-        int32_t temp_read; 
+        int32_t temp_read;
         int ret;
 
         /* waits for sensor to power on */
-        k_msleep(10); 
+        k_msleep(10);
 
 
         if (!device_is_ready(dev_i2c.bus)) {
@@ -162,41 +184,46 @@ int main(void)
                 return 0;
         }
 
-        LOG_INF("Começando medições...\n\r"); 
+        ret = check_chip_id();
+        if (ret != 0) {
+                LOG_ERR("Chip id check failed: %d\n\r", ret);
+                return 0;
+        }
+
+        LOG_INF("Começando medições...\n\r");
         while(1) {
-                ret = enable_temp_only(oversamp); 
+                ret = enable_temp_only(oversamp);
                 if (ret != 0) {
-                        LOG_ERR("Could not enable temparature readings: %d\n\r", ret); 
-                        return 0; 
+                        LOG_ERR("Could not enable temparature readings: %d\n\r", ret);
+                        return 0;
                 }
 
-                // LOG_INF("Pegando parametros de temperatura\n\r"); 
-                ret = get_temp_params(&par_t1, &par_t2, &par_t3); 
+                ret = get_temp_params(&par_t1, &par_t2, &par_t3);
                 if (ret != 0) {
-                        LOG_ERR("Could not get temperature parameters: %d\n\r", ret); 
-                        return 0; 
+                        LOG_ERR("Could not get temperature parameters: %d\n\r", ret);
+                        return 0;
                 }
 
-                ret = check_for_new_data(); 
+                ret = check_for_new_data();
                 if (ret != 0) {
-                        LOG_ERR("New data check failed: %d\n\r", ret); 
-                        return 0; 
+                        LOG_ERR("New data check failed: %d\n\r", ret);
+                        return 0;
                 }
 
-                LOG_INF("New data acquired\n\r"); 
+                LOG_INF("New data acquired\n\r");
 
-                ret = get_raw_adc(&adc); 
+                ret = get_raw_adc(&adc);
                 if (ret != 0) {
-                        LOG_ERR("Could not get raw adc data: %d\n\r", ret); 
-                        return 0; 
+                        LOG_ERR("Could not get raw adc data: %d\n\r", ret);
+                        return 0;
                 }
 
                 temp_read = raw_adc_to_celcius(adc, par_t1,
-                                                par_t2, par_t3); 
+                                                par_t2, par_t3);
 
-                LOG_INF("Temperature: %0.2f C\n\r", temp_read / 100.0); 
+                LOG_INF("Temperature: %0.2f C\n\r", temp_read / 100.0);
 
-                k_msleep(1000); 
+                k_msleep(1000);
         }
 
         return 0;
