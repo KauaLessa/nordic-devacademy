@@ -1,0 +1,6 @@
+&i2c0 {
+    bme680: bme680@76 {
+        compatible = "i2c-device";
+        reg = <0x76>;
+    };
+};
